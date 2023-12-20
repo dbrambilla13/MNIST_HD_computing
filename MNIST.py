@@ -12,9 +12,9 @@ from torchhd import embeddings
 
 device = 'cuda'
 
-BATCH_SIZE = 32
-DIMENSIONS = 1000
-NUM_LEVELS = 10
+BATCH_SIZE = 8
+DIMENSIONS = 10000
+NUM_LEVELS = 256
 IMG_SIZE = 28
 
 
@@ -24,7 +24,7 @@ train_ds = MNIST("../data", train=True, transform=transform, download=True)
 train_ld = torch.utils.data.DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True)
 
 test_ds = MNIST("../data", train=False, transform=transform, download=True)
-test_ld = torch.utils.data.DataLoader(test_ds, batch_size=BATCH_SIZE, shuffle=False)
+test_ld = torch.utils.data.DataLoader(test_ds, batch_size=BATCH_SIZE, shuffle=True)
 
 
 for x,l in test_ds:
@@ -38,14 +38,14 @@ class Model(nn.Module):
         self.flatten = torch.nn.Flatten()
         self.size = size
 
-        # self.position = embeddings.Random(size*size, DIMENSIONS)
-        self.position_x = embeddings.Level(size,DIMENSIONS)
-        self.position_y = embeddings.Level(size,DIMENSIONS)
+        self.position = embeddings.Random(size*size, DIMENSIONS).weight
+        # self.position_x = embeddings.Random(size,DIMENSIONS)
+        # self.position_y = embeddings.Random(size,DIMENSIONS)
 
-        px = self.position_x(torch.arange(size).repeat(size))
-        py = self.position_y(torch.arange(size).repeat_interleave(size))
+        # px = self.position_x(torch.arange(size).repeat(size))
+        # py = self.position_y(torch.arange(size).repeat_interleave(size))
 
-        self.position = functional.bundle(px.to(device), py.to(device))
+        # self.position = functional.hard_quantize(functional.bundle(px.to(device), py.to(device)))
     
         self.value = embeddings.Level(NUM_LEVELS, DIMENSIONS)
 
@@ -79,9 +79,9 @@ with torch.set_grad_enabled(False):
         samples_hv = model.encode(samples)
 
 
-        model.classify.weight[labels] += samples_hv
+        model.classify.weight[labels] = functional.bundle(model.classify.weight[labels],samples_hv)
 
-    model.classify.weight[:] = F.normalize(model.classify.weight)
+    model.classify.weight[:] = functional.hard_quantize(model.classify.weight)
 
 
     train_accuracy = MulticlassAccuracy(num_classes=len(train_ds.classes))
@@ -90,7 +90,7 @@ with torch.set_grad_enabled(False):
 
         outputs = model(samples)
         predictions = torch.argmax(outputs, dim=-1)
-        a = train_accuracy.update(predictions.cpu(), labels)
+        train_accuracy.update(predictions.cpu(), labels)
         
     print(train_accuracy.compute())
 
@@ -102,6 +102,6 @@ with torch.set_grad_enabled(False):
 
         outputs = model(samples)
         predictions = torch.argmax(outputs, dim=-1)
-        a = test_accuracy.update(predictions.cpu(), labels)
+        test_accuracy.update(predictions.cpu(), labels)
         
     print(test_accuracy.compute())
